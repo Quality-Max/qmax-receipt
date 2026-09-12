@@ -1,25 +1,15 @@
 # qmax-receipt
 
-The **shared, versioned schema** behind QualityMax's "Receipts, not promises"
-trust model. Every QualityMax agent that touches the network — the `qmax` CLI
-(crawl / test execution / CI) and the `qmax-code` terminal agent — imports this
-module and emits the **same** Exposure Receipt: a per-run, customer-held manifest
-of every outbound request (destination, category, byte size, and content
-SHA-256 — **never content**), signed with ed25519.
+[Evidence & Trust](https://docs.qualitymax.io/evidence-trust/) · [QualityMax ecosystem](https://github.com/Quality-Max/qualitymax)
 
-One schema, one signer, one `Verify`. A receipt written by either agent is
-validated by the same code (and re-implementable in any language off the pinned
-`receipt_version`).
+A shared, versioned Go schema for signed **Exposure Receipts**: per-run manifests of outbound requests recorded by an integrating application. Entries describe destination, category, byte size, and content SHA-256 rather than storing payload content.
 
-## What it is / isn't
+## Scope and verification
 
-- **Is:** a tamper-evident record of *what could have left the boundary* — hashes
-  and sizes, so the receipt itself is non-sensitive and safe to hand a security
-  reviewer to diff against their own firewall logs.
-- **Isn't:** proof of honesty. `Verify` proves **provenance** (this key produced
-  this receipt), not that the agent declared everything. Trust roots in open
-  auditable source + each agent's static egress guard + customer log-diffing —
-  never the signature alone. Do not describe a signed receipt as "trustworthy."
+- An integration must record its outbound requests. This library does not automatically observe all network traffic or prove that every request was recorded.
+- `Verify` checks the signed manifest against its key. Establish trust in the signer separately; accepting a key supplied with an untrusted manifest does not authenticate its issuer.
+- Destination and category metadata can themselves be sensitive. Review receipts before sharing them or comparing them with your own network logs.
+- An exposure receipt is distinct from a test result or a verified-fix verdict. It does not establish application correctness.
 
 ## Usage
 
@@ -35,11 +25,20 @@ func init() {
 // Per run (a CLI command, a daemon assignment, a qmax-code session):
 ctx, r := receipt.Begin(ctx, "crawl")     // or receipt.NewCurrent("cli")
 // ...the agent's httpx RoundTripper calls r.Record(entry) for each request...
-path, _ := r.Finalize()                   // signs + writes BaseDir/receipts/<id>.json
+path, err := r.Finalize()                   // signs + writes BaseDir/receipts/<id>.json
 
-// Offline verification:
-r2, _ := receipt.Load(path)
-err := receipt.Verify(r2)
+if err != nil {
+    return err
+}
+
+// Offline verification (inside a function returning error):
+r2, err := receipt.Load(path)
+if err != nil {
+    return err
+}
+if err := receipt.Verify(r2); err != nil {
+    return err
+}
 ```
 
 `Entry.Category` is a free-form string: this module never enumerates categories.
@@ -63,6 +62,4 @@ order + sorted map keys make it deterministic and cross-language reproducible.
 
 ## License
 
-TBD before publishing (see `docs/RECEIPT_SHARED_MODULE_SCOPE.md`). A permissive
-license (Apache-2.0 / MIT) fits a verifiable schema contract better than the
-FSL used for the agent binaries — the whole point is that anyone can verify.
+[MIT](LICENSE).
